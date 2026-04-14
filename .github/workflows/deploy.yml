@@ -1,0 +1,67 @@
+name: Deploy slides to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Write puppeteer config
+        run: |
+          cat > puppeteer.json <<'EOF'
+          {
+            "args": ["--no-sandbox", "--disable-setuid-sandbox"]
+          }
+          EOF
+
+      - name: Render charts
+        run: |
+          for f in charts/*.mmd; do
+            npx -y @mermaid-js/mermaid-cli \
+              -i "$f" \
+              -o "${f%.mmd}.png" \
+              -b transparent \
+              --width 900 --height 500 \
+              -p puppeteer.json
+          done
+
+      - name: Build slides
+        run: npx -y @marp-team/marp-cli slides.md -o slides.html --html
+
+      - name: Stage site
+        run: |
+          mkdir -p _site
+          cp slides.html _site/index.html
+          cp -r charts _site/charts
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
